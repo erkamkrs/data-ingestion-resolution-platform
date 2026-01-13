@@ -7,7 +7,7 @@ class RegisterIn(BaseModel):
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=64)
 
 class TokenOut(BaseModel):
     access_token: str

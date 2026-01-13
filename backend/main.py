@@ -1,6 +1,7 @@
 import json
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
+from fastapi.security import OAuth2PasswordRequestForm
 
 from database import Base, engine, get_db
 from models import User, Job, Issue
@@ -26,11 +27,13 @@ def register(body: RegisterIn, db: Session = Depends(get_db)):
     return {"access_token": create_token(user.id)}
 
 @app.post("/auth/login", response_model=TokenOut)
-def login(body: LoginIn, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == body.email).first()
-    if not user or not verify_password(body.password, user.password_hash):
+def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    # OAuth2PasswordRequestForm uses "username" field; we'll treat it as email
+    user = db.query(User).filter(User.email == form.username).first()
+    if not user or not verify_password(form.password, user.password_hash):
         raise HTTPException(401, "Invalid credentials")
     return {"access_token": create_token(user.id)}
+
 
 @app.post("/jobs", response_model=JobOut)
 async def upload_job(

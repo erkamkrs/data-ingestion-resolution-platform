@@ -5,9 +5,10 @@ class RegisterIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=64)
 
-class LoginIn(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=8, max_length=64)
+# Using the OAuth2PasswordRequestForm from FastAPI for login, so LoginIn schema is not needed anymore.
+# class LoginIn(BaseModel):
+#     email: EmailStr
+#     password: str = Field(min_length=8, max_length=64)
 
 class TokenOut(BaseModel):
     access_token: str

@@ -7,7 +7,7 @@ from database import Base, engine, get_db
 from models import User, Job, Issue
 from constants import JobStatus
 from auth import hash_password, verify_password, create_token, get_current_user
-from schemas import RegisterIn, LoginIn, TokenOut, JobOut
+from schemas import RegisterIn, TokenOut, JobOut
 from services.storage import upload_bytes
 from services.queue import publish_job
 from config import settings

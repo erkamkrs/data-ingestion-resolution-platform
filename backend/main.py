@@ -10,11 +10,18 @@ from schemas import RegisterIn, TokenOut, JobOut, ResolveIssueIn
 from services.storage import upload_bytes
 from services.queue import publish_job
 from config import settings
+from fastapi.middleware.cors import CORSMiddleware
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 @app.post("/auth/register", response_model=TokenOut)
 def register(body: RegisterIn, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():

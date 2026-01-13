@@ -2,12 +2,11 @@ import json
 from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
-
 from database import Base, engine, get_db
-from models import User, Job, Issue
-from constants import JobStatus
+from models import User, Job, Issue, IssueResolution, RawRow, FinalContact
+from constants import IssueStatus, JobStatus, IssueType
 from auth import hash_password, verify_password, create_token, get_current_user
-from schemas import RegisterIn, TokenOut, JobOut
+from schemas import RegisterIn, TokenOut, JobOut, ResolveIssueIn
 from services.storage import upload_bytes
 from services.queue import publish_job
 from config import settings
@@ -104,3 +103,79 @@ def job_detail(job_id: int, db: Session = Depends(get_db), user: User = Depends(
             for i in issues
         ]
     }
+    
+@app.get("/jobs/{job_id}/issues")
+def list_job_issues(job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    job = db.get(Job, job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Job not found")
+
+    issues = db.query(Issue).filter(Issue.job_id == job_id).order_by(Issue.id.asc()).all()
+    return [
+        {
+            "id": i.id,
+            "type": i.type,
+            "status": i.status,
+            "key": i.key,
+            "payload": json.loads(i.payload_json),
+        }
+        for i in issues
+]
+    
+@app.post("/jobs/{job_id}/finalize")
+def finalize_job(job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    job = db.get(Job, job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(404, "Job not found")
+
+    open_issues = db.query(Issue).filter(Issue.job_id == job_id, Issue.status == IssueStatus.OPEN).count()
+    if open_issues > 0:
+        raise HTTPException(409, "Cannot finalize: unresolved issues remain")
+
+    # Clear any previous final contacts (idempotent finalize)
+    db.query(FinalContact).filter(FinalContact.job_id == job_id).delete()
+    db.commit()
+
+    # Map resolved issues: email -> chosen_row_id
+    resolutions = (
+        db.query(Issue, IssueResolution)
+        .join(IssueResolution, IssueResolution.issue_id == Issue.id)
+        .filter(Issue.job_id == job_id)
+        .all()
+    )
+    chosen_by_email = {}
+    for issue, res in resolutions:
+        if issue.type == IssueType.DUPLICATE_EMAIL:
+            data = json.loads(res.resolution_json)
+            chosen_by_email[issue.key] = int(data["chosen_row_id"])
+
+    # Build contacts from valid rows
+    rows = db.query(RawRow).filter(RawRow.job_id == job_id, RawRow.is_valid == True).all()  # noqa: E712
+    by_email = {}
+    for r in rows:
+        if r.normalized_email:
+            by_email.setdefault(r.normalized_email, []).append(r)
+
+    for email, rlist in by_email.items():
+        # If there was a conflict and we have a chosen row, use it
+        if email in chosen_by_email:
+            chosen_row = db.get(RawRow, chosen_by_email[email])
+            if not chosen_row:
+                continue
+            data = json.loads(chosen_row.data_json)
+        else:
+            # No issue for this email: pick first valid row
+            data = json.loads(rlist[0].data_json)
+
+        db.add(FinalContact(
+            job_id=job_id,
+            email=email,
+            first_name=data.get("first_name"),
+            last_name=data.get("last_name"),
+            company=data.get("company"),
+        ))
+
+    job.status = JobStatus.COMPLETED
+    db.commit()
+
+    return {"ok": True, "job_id": job.id, "status": job.status}

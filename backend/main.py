@@ -11,7 +11,8 @@ from services.storage import upload_bytes
 from services.queue import publish_job
 from config import settings
 from fastapi.middleware.cors import CORSMiddleware
-
+from models import Issue, IssueResolution, RawRow, Job
+from constants import IssueStatus
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
@@ -75,6 +76,7 @@ async def upload_job(
         invalid_rows=job.invalid_rows,
         conflict_count=job.conflict_count,
         error_message=job.error_message,
+        original_filename=job.original_filename,
     )
 
 @app.get("/jobs", response_model=list[JobOut])
@@ -84,7 +86,8 @@ def list_jobs(db: Session = Depends(get_db), user: User = Depends(get_current_us
         id=j.id, status=j.status,
         total_rows=j.total_rows, valid_rows=j.valid_rows,
         invalid_rows=j.invalid_rows, conflict_count=j.conflict_count,
-        error_message=j.error_message
+        error_message=j.error_message,
+        original_filename=j.original_filename
     ) for j in jobs]
 
 @app.get("/jobs/{job_id}")
@@ -118,16 +121,28 @@ def list_job_issues(job_id: int, db: Session = Depends(get_db), user: User = Dep
         raise HTTPException(404, "Job not found")
 
     issues = db.query(Issue).filter(Issue.job_id == job_id).order_by(Issue.id.asc()).all()
-    return [
-        {
+
+    # build resolution map: issue_id -> chosen_row_id
+    res_rows = db.query(IssueResolution).filter(IssueResolution.issue_id.in_([i.id for i in issues])).all()
+    chosen_by_issue = {}
+    for r in res_rows:
+        data = json.loads(r.resolution_json)
+        chosen_by_issue[r.issue_id] = data.get("chosen_row_id")
+
+    out = []
+    for i in issues:
+        out.append({
             "id": i.id,
             "type": i.type,
             "status": i.status,
             "key": i.key,
             "payload": json.loads(i.payload_json),
-        }
-        for i in issues
-]
+            "resolution": {
+                "chosen_row_id": chosen_by_issue.get(i.id)
+            } if i.status == IssueStatus.RESOLVED else None
+        })
+    return out
+
     
 @app.post("/jobs/{job_id}/finalize")
 def finalize_job(job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
@@ -186,3 +201,40 @@ def finalize_job(job_id: int, db: Session = Depends(get_db), user: User = Depend
     db.commit()
 
     return {"ok": True, "job_id": job.id, "status": job.status}
+
+@app.post("/issues/{issue_id}/resolve")
+def resolve_issue(
+    issue_id: int,
+    body: ResolveIssueIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    issue = db.get(Issue, issue_id)
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    job = db.get(Job, issue.job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    if issue.status == IssueStatus.RESOLVED:
+        raise HTTPException(status_code=409, detail="Issue already resolved")
+
+    # validate chosen row belongs to the same job
+    rr = db.get(RawRow, body.chosen_row_id)
+    if not rr or rr.job_id != job.id:
+        raise HTTPException(status_code=400, detail="chosen_row_id does not belong to this job")
+
+    # upsert resolution (issue_id is unique)
+    existing = db.query(IssueResolution).filter(IssueResolution.issue_id == issue.id).one_or_none()
+    payload = {"action": body.action, "chosen_row_id": body.chosen_row_id}
+
+    if existing:
+        existing.resolution_json = json.dumps(payload)
+    else:
+        db.add(IssueResolution(issue_id=issue.id, resolution_json=json.dumps(payload)))
+
+    issue.status = IssueStatus.RESOLVED
+    db.commit()
+
+    return {"ok": True, "issue_id": issue.id, "status": issue.status}

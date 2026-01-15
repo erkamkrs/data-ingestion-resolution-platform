@@ -35,15 +35,8 @@ services:
     command: uvicorn main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+psycopg://user:password@db:5432/ingestion_db
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_DEFAULT_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - S3_BUCKET=contact-imports
-      - SQS_QUEUE_NAME=contact-import-jobs
-      - JWT_SECRET=dev-secret
+    env_file:
+      - ./backend/.env
     depends_on:
       db:
         condition: service_healthy
@@ -53,16 +46,19 @@ services:
   worker:
     build: ./backend
     command: python worker.py
-    environment:
-      - DATABASE_URL=postgresql+psycopg://user:password@db:5432/ingestion_db
-      - AWS_ENDPOINT_URL=http://localstack:4566
-      - AWS_DEFAULT_REGION=us-east-1
-      - AWS_ACCESS_KEY_ID=test
-      - AWS_SECRET_ACCESS_KEY=test
-      - S3_BUCKET=contact-imports
-      - SQS_QUEUE_NAME=contact-import-jobs
+    env_file:
+      - ./backend/.env
     depends_on:
       db:
         condition: service_healthy
       localstack:
         condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - api

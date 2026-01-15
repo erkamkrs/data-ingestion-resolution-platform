@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { getErrorMessage } from "../utils/errorHandler";
 
-type Job = {
+type Upload = {
   id: number;
   status: string;
   total_rows: number;
@@ -24,21 +24,23 @@ type Issue = {
   type: string;
   status: "OPEN" | "RESOLVED";
   key: string;
-  payload: { email: string; candidates: Candidate[] };
+  payload: 
+    | { email: string; candidates: Candidate[] }  // For DUPLICATE_EMAIL
+    | { row_id: number; row_number: number; data: any; reason: string };  // For single-row issues
   resolution?: { chosen_row_id: number } | null;
 };
 
-export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: () => void }) {
-  const [job, setJob] = useState<Job | null>(null);
+export default function UploadDetail({ uploadId, onBack }: { uploadId: number; onBack: () => void }) {
+  const [upload, setUpload] = useState<Upload | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   async function load() {
     setErr(null);
-    const d = await api.jobDetail(jobId);
-    setJob(d.job);
-    const iss = await api.listIssues(jobId);
+    const d = await api.jobDetail(uploadId);
+    setUpload(d.job);
+    const iss = await api.listIssues(uploadId);
     setIssues(iss);
   }
 
@@ -46,7 +48,7 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
     load();
     const t = setInterval(load, 3000);
     return () => clearInterval(t);
-  }, [jobId]);
+  }, [uploadId]);
 
   async function resolve(issueId: number, chosenRowId: number) {
     setBusy(true);
@@ -65,7 +67,7 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
     setBusy(true);
     setErr(null);
     try {
-      await api.finalize(jobId);
+      await api.finalize(uploadId);
       await load();
     } catch (e: any) {
       setErr(getErrorMessage(e, "Finalize failed"));
@@ -118,10 +120,10 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
           e.currentTarget.style.color = "#1a1a1a";
         }}
       >
-        ← Back to Jobs
+        ← Back to Uploads
       </button>
 
-      {job && (
+      {upload && (
         <div style={{ display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" }}>
           <div style={{ 
             flex: "1 1 400px",
@@ -132,8 +134,8 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
             boxShadow: "0 2px 8px rgba(0, 0, 0, 0.2)",
             borderTop: "4px solid #1a1a1a"
           }}>
-            <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 16 }}>Job #{job.id}</div>
-            {job.original_filename && (
+            <div style={{ fontSize: 32, fontWeight: 700, marginBottom: 16 }}>Upload #{upload.id}</div>
+            {upload.original_filename && (
               <div style={{ 
                 fontSize: 14, 
                 opacity: 0.95, 
@@ -141,7 +143,7 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
                 paddingBottom: 16,
                 borderBottom: "1px solid rgba(255, 255, 255, 0.2)"
               }}>
-                {job.original_filename}
+                {upload.original_filename}
               </div>
             )}
             <div style={{ display: "grid", gap: 12, fontSize: 15 }}>
@@ -153,27 +155,27 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
                   borderRadius: 8,
                   fontWeight: 600
                 }}>
-                  {job.status}
+                  {upload.status}
                 </span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 12, borderTop: "1px solid rgba(255, 255, 255, 0.2)" }}>
                 <span>Total Rows:</span>
-                <span style={{ fontWeight: 700 }}>{job.total_rows.toLocaleString()}</span>
+                <span style={{ fontWeight: 700 }}>{upload.total_rows.toLocaleString()}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>Valid:</span>
-                <span style={{ fontWeight: 700 }}>{job.valid_rows.toLocaleString()}</span>
+                <span style={{ fontWeight: 700 }}>{upload.valid_rows.toLocaleString()}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>Invalid:</span>
-                <span style={{ fontWeight: 700 }}>{job.invalid_rows.toLocaleString()}</span>
+                <span style={{ fontWeight: 700 }}>{upload.invalid_rows.toLocaleString()}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>Conflicts:</span>
-                <span style={{ fontWeight: 700 }}>{job.conflict_count.toLocaleString()}</span>
+                <span>Issues:</span>
+                <span style={{ fontWeight: 700 }}>{upload.conflict_count.toLocaleString()}</span>
               </div>
             </div>
-            {job.error_message && (
+            {upload.error_message && (
               <div style={{ 
                 marginTop: 16,
                 padding: 12,
@@ -181,7 +183,7 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
                 borderRadius: 8,
                 border: "1px solid rgba(220, 53, 69, 0.3)"
               }}>
-                {job.error_message}
+                {upload.error_message}
               </div>
             )}
           </div>
@@ -212,19 +214,19 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
             </button>
             <button 
               onClick={finalize} 
-              disabled={busy || openIssues > 0 || job.status === "COMPLETED"}
+              disabled={busy || openIssues > 0 || upload.status === "COMPLETED"}
               style={{
                 padding: "10px 20px",
-                background: (busy || openIssues > 0 || job.status === "COMPLETED") 
+                background: (busy || openIssues > 0 || upload.status === "COMPLETED") 
                   ? "#ccc" 
                   : "#1a1a1a",
                 border: "none",
                 borderRadius: 8,
                 color: "#fff",
                 fontWeight: 600,
-                cursor: (busy || openIssues > 0 || job.status === "COMPLETED") ? "not-allowed" : "pointer",
+                cursor: (busy || openIssues > 0 || upload.status === "COMPLETED") ? "not-allowed" : "pointer",
                 fontSize: 14,
-                boxShadow: (busy || openIssues > 0 || job.status === "COMPLETED") 
+                boxShadow: (busy || openIssues > 0 || upload.status === "COMPLETED") 
                   ? "none" 
                   : "0 2px 8px rgba(255, 107, 53, 0.3)"
               }}
@@ -249,7 +251,7 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
       )}
 
       <h3 style={{ fontSize: 22, fontWeight: 700, marginBottom: 16, color: "#333" }}>
-        🔍 Issues {openIssues > 0 && `(${openIssues} open)`}
+         Issues {openIssues > 0 && `(${openIssues} open)`}
       </h3>
       
       {issues.length === 0 ? (
@@ -260,13 +262,22 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
           borderRadius: 12,
           color: "#666"
         }}>
-          <div style={{ fontSize: 48, marginBottom: 12 }}>✨</div>
+          <div style={{ fontSize: 48, marginBottom: 12 }}></div>
           <p style={{ margin: 0, fontSize: 16 }}>No issues found - looking good!</p>
         </div>
       ) : (
         issues.map((issue) => {
           const chosenId = issue.resolution?.chosen_row_id;
           const isOpen = issue.status === "OPEN";
+          
+          // Check if this is a duplicate issue (has candidates) or single-row issue
+          const isDuplicateIssue = issue.type === "DUPLICATE_EMAIL";
+          const payload: any = issue.payload;
+          const candidates = isDuplicateIssue ? payload.candidates : [{ 
+            raw_row_id: payload.row_id, 
+            row_number: payload.row_number, 
+            data: payload.data 
+          }];
 
           return (
             <div 
@@ -286,19 +297,30 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
                     fontWeight: 700,
                     color: "#333"
                   }}>
-                    {issue.type}
+                    {issue.type.replace(/_/g, ' ')}
                   </span>
-                  <span style={{ 
-                    marginLeft: 12,
-                    fontSize: 14,
-                    color: "#666",
-                    fontFamily: "monospace",
-                    background: "rgba(0, 0, 0, 0.05)",
-                    padding: "4px 8px",
-                    borderRadius: 4
-                  }}>
-                    {issue.key}
-                  </span>
+                  {!isDuplicateIssue && payload.reason && (
+                    <div style={{
+                      marginTop: 8,
+                      fontSize: 14,
+                      color: "#666"
+                    }}>
+                      {payload.reason}
+                    </div>
+                  )}
+                  {isDuplicateIssue && (
+                    <span style={{ 
+                      marginLeft: 12,
+                      fontSize: 14,
+                      color: "#666",
+                      fontFamily: "monospace",
+                      background: "rgba(0, 0, 0, 0.05)",
+                      padding: "4px 8px",
+                      borderRadius: 4
+                    }}>
+                      {issue.key}
+                    </span>
+                  )}
                 </div>
                 <span style={{
                   padding: "6px 14px",
@@ -325,7 +347,7 @@ export default function JobDetail({ jobId, onBack }: { jobId: number; onBack: ()
                     </tr>
                   </thead>
                   <tbody>
-                    {issue.payload.candidates.map((c, idx) => {
+                    {candidates.map((c: any, idx: number) => {
                       const isChosen = chosenId && c.raw_row_id === chosenId;
                       return (
                         <tr 

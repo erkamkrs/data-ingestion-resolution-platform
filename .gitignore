@@ -65,7 +65,6 @@ htmlcov/
 
 # Project specific
 uploads/
-test-*.csv
 
 # Docker volumes (if persisted locally)
 postgres-data/

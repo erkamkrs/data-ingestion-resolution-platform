@@ -1,29 +1,70 @@
 import React, { useEffect, useState } from "react";
-import { clearToken, getToken, setToken } from "./api/client";
+import { clearToken, getToken, setToken, api } from "./api/client";
 import Login from "./pages/Login";
-import Jobs from "./pages/Jobs";
-import JobDetail from "./pages/JobDetail";
+import Uploads from "./pages/Uploads";
+import UploadDetail from "./pages/UploadDetail";
 
 type View =
   | { name: "login" }
-  | { name: "jobs" }
-  | { name: "job"; jobId: number };
+  | { name: "uploads" }
+  | { name: "upload"; uploadId: number };
 
 export default function App() {
   const [view, setView] = useState<View>({ name: "login" });
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (getToken()) setView({ name: "jobs" });
+    // Validate token on mount
+    async function validateAuth() {
+      const token = getToken();
+      if (token) {
+        try {
+          // Try to fetch jobs to validate token
+          await api.listJobs();
+          setView({ name: "uploads" });
+        } catch (error) {
+          // Token is invalid or expired, clear it
+          clearToken();
+          setView({ name: "login" });
+        }
+      }
+      setLoading(false);
+    }
+    validateAuth();
   }, []);
 
   function onAuth(token: string) {
     setToken(token);
-    setView({ name: "jobs" });
+    setView({ name: "uploads" });
   }
 
   function logout() {
     clearToken();
     setView({ name: "login" });
+  }
+
+  if (loading) {
+    return (
+      <div style={{ 
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        minHeight: "100vh",
+        background: "#f5f5f5",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center"
+      }}>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ 
+            fontSize: 48, 
+            fontWeight: 700, 
+            color: "#1a1a1a",
+            marginBottom: 16
+          }}>
+            Loading...
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -81,7 +122,7 @@ export default function App() {
                 e.currentTarget.style.color = "#1a1a1a";
               }}
             >
-              🚪 Logout
+               Logout
             </button>
           )}
         </header>
@@ -95,12 +136,12 @@ export default function App() {
         }}>
           {view.name === "login" && <Login onAuth={onAuth} />}
 
-          {view.name === "jobs" && (
-            <Jobs onOpenJob={(jobId) => setView({ name: "job", jobId })} />
+          {view.name === "uploads" && (
+            <Uploads onOpenUpload={(uploadId) => setView({ name: "upload", uploadId })} />
           )}
 
-          {view.name === "job" && (
-            <JobDetail jobId={view.jobId} onBack={() => setView({ name: "jobs" })} />
+          {view.name === "upload" && (
+            <UploadDetail uploadId={view.uploadId} onBack={() => setView({ name: "uploads" })} />
           )}
         </div>
       </div>

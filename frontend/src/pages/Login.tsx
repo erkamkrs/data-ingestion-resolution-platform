@@ -54,7 +54,7 @@ export default function Login({ onAuth }: { onAuth: (token: string) => void }) {
     <div style={{ maxWidth: 460, margin: "40px auto" }}>
       <div style={{ textAlign: "center", marginBottom: 32 }}>
         <h2 style={{ fontSize: 32, fontWeight: 700, margin: "0 0 8px 0", color: "#333" }}>
-          {mode === "login" ? "Welcome Back" : "Create Account"}
+          {mode === "login" ? "Welcome " : "Create Account"}
         </h2>
         <p style={{ margin: 0, fontSize: 15, color: "#666" }}>
           {mode === "login" ? "Sign in to continue" : "Sign up to get started"}
@@ -96,7 +96,7 @@ export default function Login({ onAuth }: { onAuth: (token: string) => void }) {
           <input 
             style={inputStyle}
             type="password"
-            placeholder="••••••••"
+            placeholder=""
             value={password} 
             onChange={(e) => setPassword(e.target.value)}
             onFocus={(e) => e.currentTarget.style.borderColor = "#1a1a1a"}
@@ -130,7 +130,7 @@ export default function Login({ onAuth }: { onAuth: (token: string) => void }) {
             e.currentTarget.style.boxShadow = busy ? "none" : "0 2px 8px rgba(255, 107, 53, 0.3)";
           }}
         >
-          {busy ? "⏳ Working..." : mode === "register" ? "🚀 Create Account" : "🔐 Sign In"}
+          {busy ? "⏳ Working..." : mode === "register" ? " Create Account" : " Sign In"}
         </button>
         {err && (
           <div style={{ 

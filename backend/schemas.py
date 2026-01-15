@@ -14,7 +14,7 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-class JobOut(BaseModel):
+class ApplicationOut(BaseModel):
     id: int
     status: str
     total_rows: int

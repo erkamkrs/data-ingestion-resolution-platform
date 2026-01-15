@@ -4,7 +4,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import relationship
 from database import Base
-from constants import JobStatus, IssueType, IssueStatus
+from constants import ApplicationStatus, IssueType, IssueStatus
 
 class User(Base):
     __tablename__ = "users"
@@ -13,11 +13,11 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
-class Job(Base):
-    __tablename__ = "jobs"
+class Application(Base):
+    __tablename__ = "applications"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    status = Column(String(32), nullable=False, default=JobStatus.PENDING)
+    status = Column(String(32), nullable=False, default=ApplicationStatus.PENDING)
 
     file_key = Column(String(1024), nullable=True)
     original_filename = Column(String(255), nullable=True)
@@ -34,7 +34,7 @@ class Job(Base):
 class RawRow(Base):
     __tablename__ = "raw_rows"
     id = Column(Integer, primary_key=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    application_id = Column(Integer, ForeignKey("applications.id"), nullable=False, index=True)
     row_number = Column(Integer, nullable=False)
     data_json = Column(Text, nullable=False)
     normalized_email = Column(String(255), nullable=True, index=True)
@@ -45,7 +45,7 @@ class RawRow(Base):
 class Issue(Base):
     __tablename__ = "issues"
     id = Column(Integer, primary_key=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    application_id = Column(Integer, ForeignKey("applications.id"), nullable=False, index=True)
     type = Column(String(64), nullable=False, default=IssueType.DUPLICATE_EMAIL)
     status = Column(String(32), nullable=False, default=IssueStatus.OPEN)
 
@@ -56,7 +56,7 @@ class Issue(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("job_id", "type", "key", name="uq_issue_job_type_key"),
+        UniqueConstraint("application_id", "type", "key", name="uq_issue_job_type_key"),
     )
 
 class IssueResolution(Base):
@@ -69,7 +69,7 @@ class IssueResolution(Base):
 class FinalContact(Base):
     __tablename__ = "final_contacts"
     id = Column(Integer, primary_key=True)
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    application_id = Column(Integer, ForeignKey("applications.id"), nullable=False, index=True)
     email = Column(String(255), nullable=False)
     first_name = Column(String(255), nullable=True)
     last_name = Column(String(255), nullable=True)
@@ -77,5 +77,5 @@ class FinalContact(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("job_id", "email", name="uq_final_job_email"),
+        UniqueConstraint("application_id", "email", name="uq_final_job_email"),
     )

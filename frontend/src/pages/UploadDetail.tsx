@@ -1,3 +1,20 @@
+/**
+ * UploadDetail Component
+ * 
+ * Displays detailed information about a single CSV upload and allows users to resolve data quality issues.
+ * 
+ * Design decisions:
+ * 1. Polling every 3s for status updates (simple, reliable, good enough for MVP)
+ *    - Alternative considered: WebSockets (adds complexity, harder to debug)
+ * 2. Handling two different issue payload types in one component
+ *    - DUPLICATE_EMAIL: has 'candidates' array with multiple rows
+ *    - Single-row issues: has single 'data' object with 'reason'
+ *    - Could have split into separate components, but this keeps logic centralized
+ * 3. Finalize button disabled until all issues resolved
+ *    - Prevents incomplete data in final contacts table
+ *    - Clear visual feedback (grayed out + tooltip would be better)
+ */
+
 import React, { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { getErrorMessage } from "../utils/errorHandler";
@@ -39,7 +56,7 @@ export default function UploadDetail({ uploadId, onBack }: { uploadId: number; o
   async function load() {
     setErr(null);
     const d = await api.jobDetail(uploadId);
-    setUpload(d.job);
+    setUpload(d.application);
     const iss = await api.listIssues(uploadId);
     setIssues(iss);
   }

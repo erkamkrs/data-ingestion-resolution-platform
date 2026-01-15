@@ -84,22 +84,22 @@ export const api = {
     });
   },
 
-  listJobs() {
-    return request("/jobs");
+  listApplications() {
+    return request("/applications");
   },
 
   uploadCsv(file: File) {
     const fd = new FormData();
     fd.append("file", file);
-    return request("/jobs", { method: "POST", body: fd });
+    return request("/applications", { method: "POST", body: fd });
   },
 
   jobDetail(jobId: number) {
-    return request(`/jobs/${jobId}`);
+    return request(`/applications/${jobId}`);
   },
 
   listIssues(jobId: number) {
-    return request(`/jobs/${jobId}/issues`);
+    return request(`/applications/${jobId}/issues`);
   },
 
   resolveIssue(issueId: number, chosen_row_id: number) {
@@ -111,6 +111,6 @@ export const api = {
   },
 
   finalize(jobId: number) {
-    return request(`/jobs/${jobId}/finalize`, { method: "POST" });
+    return request(`/applications/${jobId}/finalize`, { method: "POST" });
   },
 };

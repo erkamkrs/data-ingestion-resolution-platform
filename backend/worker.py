@@ -10,8 +10,8 @@ from typing import Dict, List, Tuple, Set
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Job, RawRow, Issue, IssueResolution, FinalContact
-from constants import JobStatus, IssueType, IssueStatus, ValidationError
+from models import application, RawRow, Issue, IssueResolution, FinalContact
+from constants import ApplicationStatus, IssueType, IssueStatus, ValidationError
 from services.storage import download_bytes
 from services.queue import poll_messages, delete_message
 
@@ -85,15 +85,15 @@ def safe_json(obj) -> str:
     return json.dumps(obj, ensure_ascii=False)
 
 
-def set_job_failed(db: Session, job: Job, message: str):
-    job.status = JobStatus.FAILED
-    job.error_message = message[:5000]
+def set_job_failed(db: Session, application: application, message: str):
+    application.status = ApplicationStatus.FAILED
+    application.error_message = message[:5000]
     db.commit()
 
 
 def upsert_duplicate_issue(
     db: Session,
-    job_id: int,
+    application_id: int,
     email: str,
     candidate_rows: List[dict],
 ):
@@ -102,17 +102,17 @@ def upsert_duplicate_issue(
     
     Design Decision: Using 'upsert' pattern instead of insert-only because:
     1. User might re-upload the same file (we should update, not crash)
-    2. Worker might process same job twice (queue visibility timeout)
+    2. Worker might process same application twice (queue visibility timeout)
     3. Allows updating candidate list if CSV changes
     
     Note: We DON'T auto-reopen resolved issues - if user already chose a candidate
     and re-uploads, their choice persists (better UX than forcing re-review).
     
-    Database: Unique constraint on (job_id, type, key) prevents duplicate issues.
+    Database: Unique constraint on (application_id, type, key) prevents duplicate issues.
     """
     existing = (
         db.query(Issue)
-        .filter(Issue.job_id == job_id, Issue.type == IssueType.DUPLICATE_EMAIL, Issue.key == email)
+        .filter(Issue.application_id == application_id, Issue.type == IssueType.DUPLICATE_EMAIL, Issue.key == email)
         .one_or_none()
     )
     payload = {
@@ -128,7 +128,7 @@ def upsert_duplicate_issue(
         return existing
 
     issue = Issue(
-        job_id=job_id,
+        application_id=application_id,
         type=IssueType.DUPLICATE_EMAIL,
         status=IssueStatus.OPEN,
         key=email,
@@ -142,7 +142,7 @@ def upsert_duplicate_issue(
 
 def create_row_issue(
     db: Session,
-    job_id: int,
+    application_id: int,
     issue_type: str,
     row_id: int,
     row_number: int,
@@ -165,7 +165,7 @@ def create_row_issue(
     
     existing = (
         db.query(Issue)
-        .filter(Issue.job_id == job_id, Issue.type == issue_type, Issue.key == key)
+        .filter(Issue.application_id == application_id, Issue.type == issue_type, Issue.key == key)
         .one_or_none()
     )
     
@@ -182,7 +182,7 @@ def create_row_issue(
         return existing
 
     issue = Issue(
-        job_id=job_id,
+        application_id=application_id,
         type=issue_type,
         status=IssueStatus.OPEN,
         key=key,
@@ -192,18 +192,18 @@ def create_row_issue(
     return issue
 
 
-def auto_finalize_if_no_issues(db: Session, job: Job):
+def auto_finalize_if_no_issues(db: Session, application: application):
     """
     Simple auto-finalize:
     - For each email with multiple valid rows but same identity, pick first
     - For conflict emails, there should be an Issue -> so we don't auto-finalize those
     """
-    open_issues = db.query(Issue).filter(Issue.job_id == job.id, Issue.status == IssueStatus.OPEN).count()
+    open_issues = db.query(Issue).filter(Issue.application_id == application.id, Issue.status == IssueStatus.OPEN).count()
     if open_issues > 0:
         return False
 
     # Build contacts from valid rows
-    rows = db.query(RawRow).filter(RawRow.job_id == job.id, RawRow.is_valid == True).all()  # noqa: E712
+    rows = db.query(RawRow).filter(RawRow.application_id == application.id, RawRow.is_valid == True).all()  # noqa: E712
     # group by normalized_email
     by_email: Dict[str, List[RawRow]] = {}
     for r in rows:
@@ -215,7 +215,7 @@ def auto_finalize_if_no_issues(db: Session, job: Job):
         # pick first row's data_json
         data = json.loads(rlist[0].data_json)
         fc = FinalContact(
-            job_id=job.id,
+            application_id=application.id,
             email=email,
             first_name=data.get("first_name"),
             last_name=data.get("last_name"),
@@ -223,33 +223,33 @@ def auto_finalize_if_no_issues(db: Session, job: Job):
         )
         db.add(fc)
 
-    job.status = JobStatus.COMPLETED
+    application.status = ApplicationStatus.COMPLETED
     db.commit()
     return True
 
 
-def process_job(db: Session, job_id: int, file_key: str):
-    job = db.get(Job, job_id)
-    if not job:
+def process_job(db: Session, application_id: int, file_key: str):
+    application = db.get(application, application_id)
+    if not application:
         return
 
     # Idempotency: if completed, no-op
-    if job.status == JobStatus.COMPLETED:
+    if application.status == ApplicationStatus.COMPLETED:
         return
 
-    job.status = JobStatus.PROCESSING
-    job.error_message = None
+    application.status = ApplicationStatus.PROCESSING
+    application.error_message = None
     db.commit()
 
     # Clear previous data for clean processing
-    db.query(RawRow).filter(RawRow.job_id == job_id).delete()
-    db.query(FinalContact).filter(FinalContact.job_id == job_id).delete()
+    db.query(RawRow).filter(RawRow.application_id == application_id).delete()
+    db.query(FinalContact).filter(FinalContact.application_id == application_id).delete()
     
     # Delete old issues and their resolutions
-    issue_ids = [i.id for i in db.query(Issue).filter(Issue.job_id == job_id).all()]
+    issue_ids = [i.id for i in db.query(Issue).filter(Issue.application_id == application_id).all()]
     if issue_ids:
         db.query(IssueResolution).filter(IssueResolution.issue_id.in_(issue_ids)).delete(synchronize_session=False)
-        db.query(Issue).filter(Issue.job_id == job_id).delete(synchronize_session=False)
+        db.query(Issue).filter(Issue.application_id == application_id).delete(synchronize_session=False)
     
     db.commit()
 
@@ -270,10 +270,10 @@ def process_job(db: Session, job_id: int, file_key: str):
                 raise ValueError("CSV file must have an 'email' column")
                 
         except csv.Error as e:
-            set_job_failed(db, job, f"CSV parse error: {str(e)}")
+            set_job_failed(db, application, f"CSV parse error: {str(e)}")
             return
         except Exception as e:
-            set_job_failed(db, job, f"File read error: {str(e)}")
+            set_job_failed(db, application, f"File read error: {str(e)}")
             return
 
         total = 0
@@ -290,7 +290,7 @@ def process_job(db: Session, job_id: int, file_key: str):
             if row is None or not isinstance(row, dict):
                 invalid += 1
                 raw = RawRow(
-                    job_id=job_id,
+                    application_id=application_id,
                     row_number=row_number,
                     data_json=safe_json({}),
                     normalized_email=None,
@@ -321,7 +321,7 @@ def process_job(db: Session, job_id: int, file_key: str):
             # For now, consider all rows as valid and store them
             # We'll create issues for problems that need user review
             raw = RawRow(
-                job_id=job_id,
+                application_id=application_id,
                 row_number=row_number,
                 data_json=safe_json(row_data),
                 normalized_email=email if email and is_valid_email_format(email) else None,
@@ -359,7 +359,7 @@ def process_job(db: Session, job_id: int, file_key: str):
             for issue_type, reason in issues_for_row:
                 create_row_issue(
                     db=db,
-                    job_id=job_id,
+                    application_id=application_id,
                     issue_type=issue_type,
                     row_id=raw.id,
                     row_number=row_number,
@@ -389,30 +389,30 @@ def process_job(db: Session, job_id: int, file_key: str):
                         "data": json.loads(rr.data_json),
                     })
 
-                upsert_duplicate_issue(db, job_id=job_id, email=email, candidate_rows=candidate_rows)
+                upsert_duplicate_issue(db, application_id=application_id, email=email, candidate_rows=candidate_rows)
 
         # Count total issues (all types)
-        total_issue_count = db.query(Issue).filter(Issue.job_id == job_id, Issue.status == IssueStatus.OPEN).count()
+        total_issue_count = db.query(Issue).filter(Issue.application_id == application_id, Issue.status == IssueStatus.OPEN).count()
 
-        # Update job stats + status
-        job.total_rows = total
-        job.valid_rows = valid
-        job.invalid_rows = 0  # We now create issues instead of marking as invalid
-        job.conflict_count = total_issue_count  # Total number of issues requiring review
+        # Update application stats + status
+        application.total_rows = total
+        application.valid_rows = valid
+        application.invalid_rows = 0  # We now create issues instead of marking as invalid
+        application.conflict_count = total_issue_count  # Total number of issues requiring review
 
         # Determine status
         if total_issue_count > 0:
-            job.status = JobStatus.NEEDS_REVIEW
+            application.status = ApplicationStatus.NEEDS_REVIEW
             db.commit()
             return
 
         # No issues -> auto-finalize
         db.commit()
-        auto_finalize_if_no_issues(db, job)
+        auto_finalize_if_no_issues(db, application)
         
     except Exception as e:
         # Catch any unexpected errors during processing
-        set_job_failed(db, job, f"Processing error: {str(e)}\n{traceback.format_exc()}")
+        set_job_failed(db, application, f"Processing error: {str(e)}\n{traceback.format_exc()}")
 
 
 def main():
@@ -427,30 +427,30 @@ def main():
                 receipt = m["ReceiptHandle"]
                 try:
                     body = json.loads(m["Body"])
-                    job_id = int(body["job_id"])
+                    application_id = int(body["application_id"])
                     file_key = body["file_key"]
 
                     db = SessionLocal()
                     try:
-                        process_job(db, job_id, file_key)
+                        process_job(db, application_id, file_key)
                     finally:
                         db.close()
 
                     delete_message(queue_url, receipt)
-                    print(f"Processed job {job_id} successfully.")
+                    print(f"Processed application {application_id} successfully.")
                 except Exception as e:
                     # Don't delete message -> SQS will retry
                     print("Error processing message:", str(e))
                     traceback.print_exc()
 
-                    # Best-effort: mark job failed (if we can)
+                    # Best-effort: mark application failed (if we can)
                     try:
                         db = SessionLocal()
                         try:
-                            job_id = int(json.loads(m["Body"]).get("job_id", 0))
-                            job = db.get(Job, job_id)
-                            if job and job.status != JobStatus.COMPLETED:
-                                set_job_failed(db, job, f"{e}\n{traceback.format_exc()}")
+                            application_id = int(json.loads(m["Body"]).get("application_id", 0))
+                            application = db.get(application, application_id)
+                            if application and application.status != ApplicationStatus.COMPLETED:
+                                set_job_failed(db, application, f"{e}\n{traceback.format_exc()}")
                         finally:
                             db.close()
                     except Exception:

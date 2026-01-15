@@ -15,12 +15,12 @@ def get_queue_url() -> str:
     client = sqs_client()
     return client.get_queue_url(QueueName=settings.sqs_queue_name)["QueueUrl"]
 
-def publish_job(job_id: int, file_key: str) -> None:
+def publish_job(application_id: int, file_key: str) -> None:
     client = sqs_client()
     queue_url = get_queue_url()
     client.send_message(
         QueueUrl=queue_url,
-        MessageBody=json.dumps({"job_id": job_id, "file_key": file_key}),
+        MessageBody=json.dumps({"application_id": application_id, "file_key": file_key}),
     )
 
 def poll_messages(max_messages: int = 1, wait_seconds: int = 10):

@@ -19,8 +19,8 @@ export default function App() {
       const token = getToken();
       if (token) {
         try {
-          // Try to fetch jobs to validate token
-          await api.listJobs();
+          // Try to fetch applications to validate token
+          await api.listApplications();
           setView({ name: "uploads" });
         } catch (error) {
           // Token is invalid or expired, clear it

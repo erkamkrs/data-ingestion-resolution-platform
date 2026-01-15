@@ -1,6 +1,6 @@
 from enum import StrEnum
 
-class JobStatus(StrEnum):
+class ApplicationStatus(StrEnum):
     PENDING = "PENDING"
     PROCESSING = "PROCESSING"
     NEEDS_REVIEW = "NEEDS_REVIEW"

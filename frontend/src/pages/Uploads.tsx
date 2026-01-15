@@ -21,7 +21,7 @@ export default function Uploads({ onOpenUpload }: { onOpenUpload: (uploadId: num
 
   async function refresh() {
     try {
-      setUploads(await api.listJobs());
+      setUploads(await api.listApplications());
     } catch (e: any) {
       setErr(getErrorMessage(e, "Failed to load uploads"));
     }

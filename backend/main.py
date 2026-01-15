@@ -3,15 +3,15 @@ from fastapi import FastAPI, Depends, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from fastapi.security import OAuth2PasswordRequestForm
 from database import Base, engine, get_db
-from models import User, Job, Issue, IssueResolution, RawRow, FinalContact
-from constants import IssueStatus, JobStatus, IssueType
+from models import User, Application, Issue, IssueResolution, RawRow, FinalContact
+from constants import IssueStatus, ApplicationStatus, IssueType
 from auth import hash_password, verify_password, create_token, get_current_user
-from schemas import RegisterIn, TokenOut, JobOut, ResolveIssueIn
+from schemas import RegisterIn, TokenOut, ApplicationOut, ResolveIssueIn
 from services.storage import upload_bytes
 from services.queue import publish_job
 from config import settings
 from fastapi.middleware.cors import CORSMiddleware
-from models import Issue, IssueResolution, RawRow, Job
+from models import Issue, IssueResolution, RawRow, Application
 from constants import IssueStatus
 Base.metadata.create_all(bind=engine)
 
@@ -42,7 +42,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     return {"access_token": create_token(user.id)}
 
 
-@app.post("/jobs", response_model=JobOut)
+@app.post("/applications", response_model=ApplicationOut)
 async def upload_job(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -55,58 +55,58 @@ async def upload_job(
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 5MB)")
 
-    job = Job(user_id=user.id, status=JobStatus.PENDING, original_filename=file.filename)
-    db.add(job)
+    application = Application(user_id=user.id, status=ApplicationStatus.PENDING, original_filename=file.filename)
+    db.add(application)
     db.commit()
-    db.refresh(job)
+    db.refresh(application)
 
-    file_key = f"uploads/u{user.id}/job-{job.id}.csv"
+    file_key = f"uploads/u{user.id}/application-{application.id}.csv"
     upload_bytes(content, file_key)
 
-    job.file_key = file_key
+    application.file_key = file_key
     db.commit()
 
-    publish_job(job.id, file_key)
+    publish_job(application.id, file_key)
 
-    return JobOut(
-        id=job.id,
-        status=job.status,
-        total_rows=job.total_rows,
-        valid_rows=job.valid_rows,
-        invalid_rows=job.invalid_rows,
-        conflict_count=job.conflict_count,
-        error_message=job.error_message,
-        original_filename=job.original_filename,
+    return ApplicationOut(
+        id=application.id,
+        status=application.status,
+        total_rows=application.total_rows,
+        valid_rows=application.valid_rows,
+        invalid_rows=application.invalid_rows,
+        conflict_count=application.conflict_count,
+        error_message=application.error_message,
+        original_filename=application.original_filename,
     )
 
-@app.get("/jobs", response_model=list[JobOut])
-def list_jobs(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    jobs = db.query(Job).filter(Job.user_id == user.id).order_by(Job.id.desc()).all()
-    return [JobOut(
+@app.get("/applications", response_model=list[ApplicationOut])
+def list_applications(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    applications = db.query(Application).filter(Application.user_id == user.id).order_by(Application.id.desc()).all()
+    return [ApplicationOut(
         id=j.id, status=j.status,
         total_rows=j.total_rows, valid_rows=j.valid_rows,
         invalid_rows=j.invalid_rows, conflict_count=j.conflict_count,
         error_message=j.error_message,
         original_filename=j.original_filename
-    ) for j in jobs]
+    ) for j in applications]
 
-@app.get("/jobs/{job_id}")
-def job_detail(job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    job = db.get(Job, job_id)
-    if not job or job.user_id != user.id:
-        raise HTTPException(404, "Job not found")
+@app.get("/applications/{application_id}")
+def job_detail(application_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    application = db.get(Application, application_id)
+    if not application or application.user_id != user.id:
+        raise HTTPException(404, "application not found")
 
-    issues = db.query(Issue).filter(Issue.job_id == job_id).all()
+    issues = db.query(Issue).filter(Issue.application_id == application_id).all()
     return {
-        "job": {
-            "id": job.id,
-            "status": job.status,
-            "file_key": job.file_key,
-            "total_rows": job.total_rows,
-            "valid_rows": job.valid_rows,
-            "invalid_rows": job.invalid_rows,
-            "conflict_count": job.conflict_count,
-            "error_message": job.error_message,
+        "application": {
+            "id": application.id,
+            "status": application.status,
+            "file_key": application.file_key,
+            "total_rows": application.total_rows,
+            "valid_rows": application.valid_rows,
+            "invalid_rows": application.invalid_rows,
+            "conflict_count": application.conflict_count,
+            "error_message": application.error_message,
         },
         "issues": [
             {"id": i.id, "type": i.type, "status": i.status, "key": i.key, "payload": json.loads(i.payload_json)}
@@ -114,13 +114,13 @@ def job_detail(job_id: int, db: Session = Depends(get_db), user: User = Depends(
         ]
     }
     
-@app.get("/jobs/{job_id}/issues")
-def list_job_issues(job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    job = db.get(Job, job_id)
-    if not job or job.user_id != user.id:
-        raise HTTPException(404, "Job not found")
+@app.get("/applications/{application_id}/issues")
+def list_job_issues(application_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    application = db.get(application, application_id)
+    if not application or application.user_id != user.id:
+        raise HTTPException(404, "application not found")
 
-    issues = db.query(Issue).filter(Issue.job_id == job_id).order_by(Issue.id.asc()).all()
+    issues = db.query(Issue).filter(Issue.application_id == application_id).order_by(Issue.id.asc()).all()
 
     # build resolution map: issue_id -> chosen_row_id
     res_rows = db.query(IssueResolution).filter(IssueResolution.issue_id.in_([i.id for i in issues])).all()
@@ -144,25 +144,25 @@ def list_job_issues(job_id: int, db: Session = Depends(get_db), user: User = Dep
     return out
 
     
-@app.post("/jobs/{job_id}/finalize")
-def finalize_job(job_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    job = db.get(Job, job_id)
-    if not job or job.user_id != user.id:
-        raise HTTPException(404, "Job not found")
+@app.post("/applications/{application_id}/finalize")
+def finalize_job(application_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    application = db.get(application, application_id)
+    if not application or application.user_id != user.id:
+        raise HTTPException(404, "application not found")
 
-    open_issues = db.query(Issue).filter(Issue.job_id == job_id, Issue.status == IssueStatus.OPEN).count()
+    open_issues = db.query(Issue).filter(Issue.application_id == application_id, Issue.status == IssueStatus.OPEN).count()
     if open_issues > 0:
         raise HTTPException(409, "Cannot finalize: unresolved issues remain")
 
     # Clear any previous final contacts (idempotent finalize)
-    db.query(FinalContact).filter(FinalContact.job_id == job_id).delete()
+    db.query(FinalContact).filter(FinalContact.application_id == application_id).delete()
     db.commit()
 
     # Map resolved issues: email -> chosen_row_id
     resolutions = (
         db.query(Issue, IssueResolution)
         .join(IssueResolution, IssueResolution.issue_id == Issue.id)
-        .filter(Issue.job_id == job_id)
+        .filter(Issue.application_id == application_id)
         .all()
     )
     chosen_by_email = {}
@@ -172,7 +172,7 @@ def finalize_job(job_id: int, db: Session = Depends(get_db), user: User = Depend
             chosen_by_email[issue.key] = int(data["chosen_row_id"])
 
     # Build contacts from valid rows
-    rows = db.query(RawRow).filter(RawRow.job_id == job_id, RawRow.is_valid == True).all()  # noqa: E712
+    rows = db.query(RawRow).filter(RawRow.application_id == application_id, RawRow.is_valid == True).all()  # noqa: E712
     by_email = {}
     for r in rows:
         if r.normalized_email:
@@ -190,17 +190,17 @@ def finalize_job(job_id: int, db: Session = Depends(get_db), user: User = Depend
             data = json.loads(rlist[0].data_json)
 
         db.add(FinalContact(
-            job_id=job_id,
+            application_id=application_id,
             email=email,
             first_name=data.get("first_name"),
             last_name=data.get("last_name"),
             company=data.get("company"),
         ))
 
-    job.status = JobStatus.COMPLETED
+    application.status = ApplicationStatus.COMPLETED
     db.commit()
 
-    return {"ok": True, "job_id": job.id, "status": job.status}
+    return {"ok": True, "application_id": application.id, "status": application.status}
 
 @app.post("/issues/{issue_id}/resolve")
 def resolve_issue(
@@ -213,17 +213,17 @@ def resolve_issue(
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
 
-    job = db.get(Job, issue.job_id)
-    if not job or job.user_id != user.id:
+    application = db.get(application, issue.application_id)
+    if not application or application.user_id != user.id:
         raise HTTPException(status_code=404, detail="Issue not found")
 
     if issue.status == IssueStatus.RESOLVED:
         raise HTTPException(status_code=409, detail="Issue already resolved")
 
-    # validate chosen row belongs to the same job
+    # validate chosen row belongs to the same application
     rr = db.get(RawRow, body.chosen_row_id)
-    if not rr or rr.job_id != job.id:
-        raise HTTPException(status_code=400, detail="chosen_row_id does not belong to this job")
+    if not rr or rr.application_id != application.id:
+        raise HTTPException(status_code=400, detail="chosen_row_id does not belong to this application")
 
     # upsert resolution (issue_id is unique)
     existing = db.query(IssueResolution).filter(IssueResolution.issue_id == issue.id).one_or_none()

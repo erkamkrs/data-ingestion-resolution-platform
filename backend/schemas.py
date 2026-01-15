@@ -22,6 +22,7 @@ class JobOut(BaseModel):
     invalid_rows: int
     conflict_count: int
     error_message: Optional[str] = None
+    original_filename: Optional[str] = None
 
 class ResolveIssueIn(BaseModel):
     action: str = "choose"

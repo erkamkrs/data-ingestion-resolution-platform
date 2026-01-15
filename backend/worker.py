@@ -98,9 +98,17 @@ def upsert_duplicate_issue(
     candidate_rows: List[dict],
 ):
     """
-    Idempotent insert:
-    - issues table has unique(job_id, type, key)
-    - if already exists, update payload (optional) and keep status as-is if RESOLVED
+    Idempotent insert for duplicate email conflicts.
+    
+    Design Decision: Using 'upsert' pattern instead of insert-only because:
+    1. User might re-upload the same file (we should update, not crash)
+    2. Worker might process same job twice (queue visibility timeout)
+    3. Allows updating candidate list if CSV changes
+    
+    Note: We DON'T auto-reopen resolved issues - if user already chose a candidate
+    and re-uploads, their choice persists (better UX than forcing re-review).
+    
+    Database: Unique constraint on (job_id, type, key) prevents duplicate issues.
     """
     existing = (
         db.query(Issue)
@@ -143,6 +151,14 @@ def create_row_issue(
 ):
     """
     Create an issue for a single row with a validation problem.
+    
+    Evolution: Initially, I auto-rejected rows with missing/invalid emails.
+    Changed to create issues instead because:
+    1. Users get visibility into what went wrong
+    2. Can fix source data and re-upload with context
+    3. Consistent UX: all problems go through issue resolution flow
+    
+    Trade-off: More issues for user to review, but better transparency.
     Key is based on row_id to make it unique per row.
     """
     key = f"row_{row_id}"

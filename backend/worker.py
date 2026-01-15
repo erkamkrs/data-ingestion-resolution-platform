@@ -2,6 +2,7 @@
 import csv
 import io
 import json
+import re
 import time
 import traceback
 from typing import Dict, List, Tuple, Set
@@ -9,24 +10,74 @@ from typing import Dict, List, Tuple, Set
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import Job, RawRow, Issue, FinalContact
-from constants import JobStatus, IssueType, IssueStatus
+from models import Job, RawRow, Issue, IssueResolution, FinalContact
+from constants import JobStatus, IssueType, IssueStatus, ValidationError
 from services.storage import download_bytes
 from services.queue import poll_messages, delete_message
 
 
 def normalize_email(email: str | None) -> str | None:
+    """Normalize email: strip whitespace, lowercase, remove comments"""
     if not email:
         return None
     e = email.strip().lower()
-    return e or None
+    
+    # Remove comments like "email@example.com (work)" -> "email@example.com"
+    e = re.sub(r'\s*\(.*?\)\s*$', '', e)
+    
+    # Remove extra whitespace
+    e = ' '.join(e.split())
+    
+    return e if e else None
 
 
-def identity_signature(row: dict) -> Tuple[str, str, str]:
-    """What defines a 'different identity' for same email."""
-    fn = (row.get("first_name") or "").strip().lower()
-    ln = (row.get("last_name") or "").strip().lower()
-    co = (row.get("company") or "").strip().lower()
+def is_valid_email_format(email: str) -> bool:
+    """Basic email format validation"""
+    if not email or len(email) > 254:
+        return False
+    
+    # Check for multiple emails (semicolon or comma separated)
+    if ';' in email or ',' in email:
+        return False
+    
+    # Basic format check: must have @ and domain with .
+    if '@' not in email:
+        return False
+    
+    local, domain = email.rsplit('@', 1)
+    if not local or not domain:
+        return False
+    
+    if '.' not in domain:
+        return False
+    
+    # Basic regex pattern for email validation
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return bool(re.match(pattern, email))
+
+
+def clean_field(value: str | None) -> str | None:
+    """Clean and normalize text fields"""
+    if not value:
+        return None
+    
+    # Strip whitespace
+    cleaned = value.strip()
+    
+    # Remove extra internal whitespace
+    cleaned = ' '.join(cleaned.split())
+    
+    return cleaned if cleaned else None
+
+
+def identity_signature(data: dict) -> Tuple[str, str, str]:
+    """
+    What defines a 'different identity' for same email.
+    Returns normalized (first_name, last_name, company) tuple.
+    """
+    fn = (data.get("first_name") or "").strip().lower()
+    ln = (data.get("last_name") or "").strip().lower()
+    co = (data.get("company") or "").strip().lower()
     return (fn, ln, co)
 
 
@@ -81,6 +132,50 @@ def upsert_duplicate_issue(
     return issue
 
 
+def create_row_issue(
+    db: Session,
+    job_id: int,
+    issue_type: str,
+    row_id: int,
+    row_number: int,
+    row_data: dict,
+    reason: str,
+):
+    """
+    Create an issue for a single row with a validation problem.
+    Key is based on row_id to make it unique per row.
+    """
+    key = f"row_{row_id}"
+    
+    existing = (
+        db.query(Issue)
+        .filter(Issue.job_id == job_id, Issue.type == issue_type, Issue.key == key)
+        .one_or_none()
+    )
+    
+    payload = {
+        "row_id": row_id,
+        "row_number": row_number,
+        "data": row_data,
+        "reason": reason,
+    }
+
+    if existing:
+        existing.payload_json = safe_json(payload)
+        db.add(existing)
+        return existing
+
+    issue = Issue(
+        job_id=job_id,
+        type=issue_type,
+        status=IssueStatus.OPEN,
+        key=key,
+        payload_json=safe_json(payload),
+    )
+    db.add(issue)
+    return issue
+
+
 def auto_finalize_if_no_issues(db: Session, job: Job):
     """
     Simple auto-finalize:
@@ -130,99 +225,178 @@ def process_job(db: Session, job_id: int, file_key: str):
     job.error_message = None
     db.commit()
 
-    # Optional: clear previous staging rows for clean reprocessing
+    # Clear previous data for clean processing
     db.query(RawRow).filter(RawRow.job_id == job_id).delete()
     db.query(FinalContact).filter(FinalContact.job_id == job_id).delete()
-    # Do not delete issues/resolutions; we upsert issues
+    
+    # Delete old issues and their resolutions
+    issue_ids = [i.id for i in db.query(Issue).filter(Issue.job_id == job_id).all()]
+    if issue_ids:
+        db.query(IssueResolution).filter(IssueResolution.issue_id.in_(issue_ids)).delete(synchronize_session=False)
+        db.query(Issue).filter(Issue.job_id == job_id).delete(synchronize_session=False)
+    
     db.commit()
 
-    file_bytes = download_bytes(file_key)
-    text = file_bytes.decode("utf-8-sig", errors="replace")
-    f = io.StringIO(text)
+    try:
+        file_bytes = download_bytes(file_key)
+        text = file_bytes.decode("utf-8-sig", errors="replace")
+        f = io.StringIO(text)
 
-    reader = csv.DictReader(f)
-    total = 0
-    valid = 0
-    invalid = 0
+        # Try to read CSV - catch parse errors
+        try:
+            reader = csv.DictReader(f)
+            # Validate we have the expected columns
+            if not reader.fieldnames:
+                raise ValueError("CSV file has no headers")
+            
+            # Check for email column (required)
+            if 'email' not in reader.fieldnames:
+                raise ValueError("CSV file must have an 'email' column")
+                
+        except csv.Error as e:
+            set_job_failed(db, job, f"CSV parse error: {str(e)}")
+            return
+        except Exception as e:
+            set_job_failed(db, job, f"File read error: {str(e)}")
+            return
 
-    # Track identity signatures for duplicates
-    email_to_sigs: Dict[str, Set[Tuple[str, str, str]]] = {}
-    email_to_row_ids: Dict[str, List[int]] = {}
+        total = 0
+        valid = 0
 
-    for row_number, row in enumerate(reader, start=2):  # start=2 (header is line 1)
-        total += 1
+        # Track identity signatures for duplicates
+        email_to_sigs: Dict[str, Set[Tuple[str, str, str]]] = {}
+        email_to_row_ids: Dict[str, List[int]] = {}
 
-        email = normalize_email(row.get("email"))
-        errors = []
+        for row_number, row in enumerate(reader, start=2):  # start=2 (header is line 1)
+            total += 1
+            
+            # Handle malformed rows
+            if row is None or not isinstance(row, dict):
+                invalid += 1
+                raw = RawRow(
+                    job_id=job_id,
+                    row_number=row_number,
+                    data_json=safe_json({}),
+                    normalized_email=None,
+                    is_valid=False,
+                    validation_errors_json=safe_json([ValidationError.MALFORMED_ROW]),
+                )
+                db.add(raw)
+                db.flush()
+                continue
 
-        if not email:
-            errors.append("missing_email")
-        else:
-            # basic format check; keep simple here (can improve later)
-            if "@" not in email or "." not in email.split("@")[-1]:
-                errors.append("invalid_email_format")
-
-        is_valid = len(errors) == 0
-        if is_valid:
-            valid += 1
-        else:
-            invalid += 1
-
-        raw = RawRow(
-            job_id=job_id,
-            row_number=row_number,
-            data_json=safe_json({
+            # Extract and clean email
+            raw_email = row.get("email", "").strip() if row.get("email") else None
+            email = normalize_email(raw_email)
+            
+            # Clean other fields
+            first_name = clean_field(row.get("first_name"))
+            last_name = clean_field(row.get("last_name"))
+            company = clean_field(row.get("company"))
+            
+            # Store the row data
+            row_data = {
                 "email": email,
-                "first_name": row.get("first_name"),
-                "last_name": row.get("last_name"),
-                "company": row.get("company"),
-            }),
-            normalized_email=email,
-            is_valid=is_valid,
-            validation_errors_json=safe_json(errors) if errors else None,
-        )
-        db.add(raw)
-        db.flush()   # assigns raw.id without committing
+                "first_name": first_name,
+                "last_name": last_name,
+                "company": company,
+            }
 
+            # For now, consider all rows as valid and store them
+            # We'll create issues for problems that need user review
+            raw = RawRow(
+                job_id=job_id,
+                row_number=row_number,
+                data_json=safe_json(row_data),
+                normalized_email=email if email and is_valid_email_format(email) else None,
+                is_valid=True,  # Consider valid, but may have issues
+                validation_errors_json=None,
+            )
+            db.add(raw)
+            db.flush()   # assigns raw.id without committing
+            
+            valid += 1
 
-        if is_valid and email:
-            sig = identity_signature(row)
-            email_to_sigs.setdefault(email, set()).add(sig)
-            email_to_row_ids.setdefault(email, []).append(raw.id)
+            # Check for issues that require user review
+            issues_for_row = []
+            
+            # Issue 1: Missing email
+            if not email:
+                issues_for_row.append((IssueType.MISSING_EMAIL, "Email field is missing or empty"))
+            # Issue 2: Invalid email format
+            elif not is_valid_email_format(email):
+                issues_for_row.append((IssueType.INVALID_EMAIL_FORMAT, f"Invalid email format: {email}"))
+            
+            # Issue 3: Missing first name
+            if not first_name:
+                issues_for_row.append((IssueType.MISSING_FIRST_NAME, "First name is missing"))
+            
+            # Issue 4: Missing last name
+            if not last_name:
+                issues_for_row.append((IssueType.MISSING_LAST_NAME, "Last name is missing"))
+            
+            # Issue 5: Missing company
+            if not company:
+                issues_for_row.append((IssueType.MISSING_COMPANY, "Company is missing"))
+            
+            # Create issues for this row
+            for issue_type, reason in issues_for_row:
+                create_row_issue(
+                    db=db,
+                    job_id=job_id,
+                    issue_type=issue_type,
+                    row_id=raw.id,
+                    row_number=row_number,
+                    row_data=row_data,
+                    reason=reason,
+                )
 
-    # Create issues for conflict emails: >1 distinct identity signatures
-    conflict_count = 0
-    for email, sigs in email_to_sigs.items():
-        if len(sigs) > 1:
-            conflict_count += 1
-            # Build candidate rows payload (show row snapshots)
-            candidate_rows = []
-            raw_rows = db.query(RawRow).filter(RawRow.id.in_(email_to_row_ids[email])).all()
-            for rr in raw_rows:
-                candidate_rows.append({
-                    "raw_row_id": rr.id,
-                    "row_number": rr.row_number,
-                    "data": json.loads(rr.data_json),
-                })
+            # Track valid rows with proper email for duplicate detection
+            if email and is_valid_email_format(email):
+                sig = identity_signature(row_data)
+                email_to_sigs.setdefault(email, set()).add(sig)
+                email_to_row_ids.setdefault(email, []).append(raw.id)
 
-            upsert_duplicate_issue(db, job_id=job_id, email=email, candidate_rows=candidate_rows)
+        # Create issues for conflict emails: >1 distinct identity signatures
+        # This covers: same email with different company, different name, etc.
+        conflict_count = 0
+        for email, sigs in email_to_sigs.items():
+            if len(sigs) > 1:
+                conflict_count += 1
+                # Build candidate rows payload (show row snapshots)
+                candidate_rows = []
+                raw_rows = db.query(RawRow).filter(RawRow.id.in_(email_to_row_ids[email])).all()
+                for rr in raw_rows:
+                    candidate_rows.append({
+                        "raw_row_id": rr.id,
+                        "row_number": rr.row_number,
+                        "data": json.loads(rr.data_json),
+                    })
 
-    # Update job stats + status
-    job.total_rows = total
-    job.valid_rows = valid
-    job.invalid_rows = invalid
-    job.conflict_count = conflict_count
+                upsert_duplicate_issue(db, job_id=job_id, email=email, candidate_rows=candidate_rows)
 
-    # Determine status
-    open_issues = db.query(Issue).filter(Issue.job_id == job_id, Issue.status == IssueStatus.OPEN).count()
-    if open_issues > 0:
-        job.status = JobStatus.NEEDS_REVIEW
+        # Count total issues (all types)
+        total_issue_count = db.query(Issue).filter(Issue.job_id == job_id, Issue.status == IssueStatus.OPEN).count()
+
+        # Update job stats + status
+        job.total_rows = total
+        job.valid_rows = valid
+        job.invalid_rows = 0  # We now create issues instead of marking as invalid
+        job.conflict_count = total_issue_count  # Total number of issues requiring review
+
+        # Determine status
+        if total_issue_count > 0:
+            job.status = JobStatus.NEEDS_REVIEW
+            db.commit()
+            return
+
+        # No issues -> auto-finalize
         db.commit()
-        return
-
-    # No issues -> auto-finalize
-    db.commit()
-    auto_finalize_if_no_issues(db, job)
+        auto_finalize_if_no_issues(db, job)
+        
+    except Exception as e:
+        # Catch any unexpected errors during processing
+        set_job_failed(db, job, f"Processing error: {str(e)}\n{traceback.format_exc()}")
 
 
 def main():

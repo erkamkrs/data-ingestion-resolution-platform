@@ -49,8 +49,8 @@ class Issue(Base):
     type = Column(String(64), nullable=False, default=IssueType.DUPLICATE_EMAIL)
     status = Column(String(32), nullable=False, default=IssueStatus.OPEN)
 
-    key = Column(String(255), nullable=False)      # normalized email
-    payload_json = Column(Text, nullable=False)    # candidates
+    key = Column(String(255), nullable=False)    
+    payload_json = Column(Text, nullable=False)   
 
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)

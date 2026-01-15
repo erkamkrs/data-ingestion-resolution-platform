@@ -9,8 +9,18 @@ class JobStatus(StrEnum):
 
 class IssueType(StrEnum):
     DUPLICATE_EMAIL = "DUPLICATE_EMAIL"
-    CONFLICTING_COMPANY = "CONFLICTING_COMPANY"
-
+    MISSING_EMAIL = "MISSING_EMAIL"
+    MISSING_FIRST_NAME = "MISSING_FIRST_NAME"
+    MISSING_LAST_NAME = "MISSING_LAST_NAME"
+    MISSING_COMPANY = "MISSING_COMPANY"
+    INVALID_EMAIL_FORMAT = "INVALID_EMAIL_FORMAT"
+    
 class IssueStatus(StrEnum):
     OPEN = "OPEN"
     RESOLVED = "RESOLVED"
+
+class ValidationError(StrEnum):
+    """Validation errors that auto-reject rows (no user review needed)"""
+    MISSING_EMAIL = "MISSING_EMAIL"
+    INVALID_EMAIL_FORMAT = "INVALID_EMAIL_FORMAT"
+    MALFORMED_ROW = "MALFORMED_ROW"

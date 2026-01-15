@@ -17,6 +17,7 @@ export default function Jobs({ onOpenJob }: { onOpenJob: (jobId: number) => void
   const [jobs, setJobs] = useState<Job[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [dragActive, setDragActive] = useState(false);
 
   async function refresh() {
     try {
@@ -46,6 +47,31 @@ export default function Jobs({ onOpenJob }: { onOpenJob: (jobId: number) => void
     }
   }
 
+  const handleDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setDragActive(true);
+    } else if (e.type === "dragleave") {
+      setDragActive(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragActive(false);
+    
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      const file = e.dataTransfer.files[0];
+      if (file.name.endsWith('.csv')) {
+        upload(file);
+      } else {
+        setErr("Please upload a CSV file");
+      }
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "COMPLETED": return "#28a745";
@@ -69,31 +95,6 @@ export default function Jobs({ onOpenJob }: { onOpenJob: (jobId: number) => void
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
-        <label style={{ 
-          background: "#1a1a1a",
-          padding: "12px 24px",
-          borderRadius: 8,
-          cursor: busy ? "not-allowed" : "pointer",
-          color: "#fff",
-          fontWeight: 600,
-          fontSize: 15,
-          boxShadow: "0 2px 8px rgba(255, 107, 53, 0.3)",
-          transition: "all 0.2s",
-          opacity: busy ? 0.6 : 1
-        }}>
-          {busy ? "⏳ Uploading..." : "📤 Upload CSV"}
-          <input
-            type="file"
-            accept=".csv"
-            style={{ display: "none" }}
-            disabled={busy}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) upload(f);
-              e.currentTarget.value = "";
-            }}
-          />
-        </label>
         <button 
           onClick={refresh}
           style={{
@@ -136,16 +137,135 @@ export default function Jobs({ onOpenJob }: { onOpenJob: (jobId: number) => void
       </div>
 
       {jobs.length === 0 ? (
-        <div style={{
-          textAlign: "center",
-          padding: "60px 20px",
-          color: "#666"
-        }}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
-          <h3 style={{ margin: "0 0 8px 0", fontSize: 20, color: "#333" }}>No jobs yet</h3>
-          <p style={{ margin: 0, fontSize: 15 }}>Upload a CSV file to get started</p>
+        <div 
+          style={{
+            textAlign: "center",
+            padding: "80px 40px",
+            color: "#666",
+            border: `3px dashed ${dragActive ? "#ff6b35" : "#ddd"}`,
+            borderRadius: 16,
+            background: dragActive ? "#fff5f0" : "#fafafa",
+            transition: "all 0.3s",
+            cursor: "pointer"
+          }}
+          onDragEnter={handleDrag}
+          onDragLeave={handleDrag}
+          onDragOver={handleDrag}
+          onDrop={handleDrop}
+        >
+          <div style={{ 
+            fontSize: 64, 
+            marginBottom: 20,
+            opacity: 0.5,
+            fontWeight: 700
+          }}>
+            ↓
+          </div>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: 24, color: "#333", fontWeight: 700 }}>
+            {dragActive ? "Drop your CSV file here" : "Drop CSV file here"}
+          </h3>
+          <p style={{ margin: "0 0 24px 0", fontSize: 16, color: "#666" }}>
+            or
+          </p>
+          <label style={{ 
+            display: "inline-block",
+            background: "#1a1a1a",
+            padding: "14px 32px",
+            borderRadius: 8,
+            cursor: busy ? "not-allowed" : "pointer",
+            color: "#fff",
+            fontWeight: 600,
+            fontSize: 16,
+            boxShadow: "0 2px 8px rgba(255, 107, 53, 0.3)",
+            transition: "all 0.2s",
+            opacity: busy ? 0.6 : 1
+          }}
+          onMouseOver={(e) => {
+            if (!busy) {
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = "0 4px 12px rgba(255, 107, 53, 0.4)";
+            }
+          }}
+          onMouseOut={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow = "0 2px 8px rgba(255, 107, 53, 0.3)";
+          }}
+          >
+            {busy ? "Uploading..." : "Browse Files"}
+            <input
+              type="file"
+              accept=".csv"
+              style={{ display: "none" }}
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) upload(f);
+                e.currentTarget.value = "";
+              }}
+            />
+          </label>
         </div>
       ) : (
+        <div>
+          <div 
+            style={{
+              padding: "40px",
+              marginBottom: 24,
+              textAlign: "center",
+              border: `3px dashed ${dragActive ? "#ff6b35" : "#ddd"}`,
+              borderRadius: 16,
+              background: dragActive ? "#fff5f0" : "#fafafa",
+              transition: "all 0.3s",
+              cursor: "pointer"
+            }}
+            onDragEnter={handleDrag}
+            onDragLeave={handleDrag}
+            onDragOver={handleDrag}
+            onDrop={handleDrop}
+          >
+            <div style={{ fontSize: 48, marginBottom: 12, opacity: 0.5, fontWeight: 700 }}>↓</div>
+            <p style={{ margin: "0 0 16px 0", fontSize: 18, color: "#333", fontWeight: 600 }}>
+              {dragActive ? "Drop your CSV file here" : "Drop CSV file to upload"}
+            </p>
+            <label style={{ 
+              display: "inline-block",
+              background: "#1a1a1a",
+              padding: "10px 24px",
+              borderRadius: 8,
+              cursor: busy ? "not-allowed" : "pointer",
+              color: "#fff",
+              fontWeight: 600,
+              fontSize: 14,
+              boxShadow: "0 2px 8px rgba(255, 107, 53, 0.3)",
+              transition: "all 0.2s",
+              opacity: busy ? 0.6 : 1
+            }}
+            onMouseOver={(e) => {
+              if (!busy) {
+                e.currentTarget.style.transform = "translateY(-2px)";
+                e.currentTarget.style.boxShadow = "0 4px 12px rgba(255, 107, 53, 0.4)";
+              }
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = "0 2px 8px rgba(255, 107, 53, 0.3)";
+            }}
+            >
+              {busy ? "Uploading..." : "Browse Files"}
+              <input
+                type="file"
+                accept=".csv"
+                style={{ display: "none" }}
+                disabled={busy}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) upload(f);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+          </div>
+
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0 }}>
             <thead>
@@ -199,6 +319,7 @@ export default function Jobs({ onOpenJob }: { onOpenJob: (jobId: number) => void
               ))}
             </tbody>
           </table>
+        </div>
         </div>
       )}
     </div>

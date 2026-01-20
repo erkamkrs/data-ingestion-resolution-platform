@@ -102,11 +102,16 @@ export const api = {
     return request(`/applications/${jobId}/issues`);
   },
 
-  resolveIssue(issueId: number, chosen_row_id: number) {
+  resolveIssue(issueId: number, payload: {
+    action: string;
+    chosen_row_id?: number;
+    row_id?: number;
+    updated_data?: Record<string, any>;
+  }) {
     return request(`/issues/${issueId}/resolve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "choose", chosen_row_id }),
+      body: JSON.stringify(payload),
     });
   },
 

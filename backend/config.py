@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     s3_bucket: str
     sqs_queue_name: str
 
-    jwt_secret: str
+    jwt_secret: str 
     jwt_algo: str = "HS256"
     jwt_exp_minutes: int = 60 * 24
 

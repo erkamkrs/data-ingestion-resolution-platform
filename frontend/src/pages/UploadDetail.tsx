@@ -60,6 +60,15 @@ function IssueEditForm({
       return;
     }
 
+    // Validate email format for email fields
+    if ((fieldInfo.field === "email" || fieldInfo.type === "email") && fieldValue.trim()) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(fieldValue.trim())) {
+        setError("Please enter a valid email address (e.g., john@example.com)");
+        return;
+      }
+    }
+
     try {
       setError(null);
       const resolutionPayload = {

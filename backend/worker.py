@@ -10,7 +10,7 @@ from typing import Dict, List, Tuple, Set
 from sqlalchemy.orm import Session
 
 from database import SessionLocal
-from models import application, RawRow, Issue, IssueResolution, FinalContact
+from models import Application, RawRow, Issue, IssueResolution, FinalContact
 from constants import ApplicationStatus, IssueType, IssueStatus, ValidationError
 from services.storage import download_bytes
 from services.queue import poll_messages, delete_message
@@ -85,7 +85,7 @@ def safe_json(obj) -> str:
     return json.dumps(obj, ensure_ascii=False)
 
 
-def set_job_failed(db: Session, application: application, message: str):
+def set_job_failed(db: Session, application: Application, message: str):
     application.status = ApplicationStatus.FAILED
     application.error_message = message[:5000]
     db.commit()
@@ -192,7 +192,7 @@ def create_row_issue(
     return issue
 
 
-def auto_finalize_if_no_issues(db: Session, application: application):
+def auto_finalize_if_no_issues(db: Session, application: Application):
     """
     Simple auto-finalize:
     - For each email with multiple valid rows but same identity, pick first
@@ -229,7 +229,7 @@ def auto_finalize_if_no_issues(db: Session, application: application):
 
 
 def process_job(db: Session, application_id: int, file_key: str):
-    application = db.get(application, application_id)
+    application = db.get(Application, application_id)
     if not application:
         return
 
@@ -448,7 +448,7 @@ def main():
                         db = SessionLocal()
                         try:
                             application_id = int(json.loads(m["Body"]).get("application_id", 0))
-                            application = db.get(application, application_id)
+                            application = db.get(Application, application_id)
                             if application and application.status != ApplicationStatus.COMPLETED:
                                 set_job_failed(db, application, f"{e}\n{traceback.format_exc()}")
                         finally:

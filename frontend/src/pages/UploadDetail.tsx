@@ -19,6 +19,254 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { getErrorMessage } from "../utils/errorHandler";
 
+// Component for editing single-row issues (MISSING_*, INVALID_EMAIL_FORMAT)
+function IssueEditForm({ 
+  issue, 
+  primaryRow, 
+  onResolve, 
+  busy 
+}: { 
+  issue: Issue; 
+  primaryRow: any; 
+  onResolve: (payload: any) => void; 
+  busy: boolean;
+}) {
+  const [fieldValue, setFieldValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const payload: any = issue.payload;
+
+  // Determine which field to edit based on issue type
+  const getFieldInfo = () => {
+    if (issue.type === "MISSING_EMAIL") {
+      return { field: "email", label: "Email Address", placeholder: "john@example.com", type: "email" };
+    } else if (issue.type === "MISSING_FIRST_NAME") {
+      return { field: "first_name", label: "First Name", placeholder: "John", type: "text" };
+    } else if (issue.type === "MISSING_LAST_NAME") {
+      return { field: "last_name", label: "Last Name", placeholder: "Doe", type: "text" };
+    } else if (issue.type === "MISSING_COMPANY") {
+      return { field: "company", label: "Company", placeholder: "TechCorp", type: "text" };
+    } else if (issue.type === "INVALID_EMAIL_FORMAT") {
+      return { field: "email", label: "Correct Email", placeholder: "john@example.com", type: "email" };
+    }
+    return null;
+  };
+
+  const fieldInfo = getFieldInfo();
+  if (!fieldInfo) return null;
+
+  const handleSubmit = async () => {
+    if (!fieldValue.trim()) {
+      setError("This field cannot be empty");
+      return;
+    }
+
+    try {
+      setError(null);
+      const resolutionPayload = {
+        action: "edit",
+        row_id: payload.row_id,
+        updated_data: {
+          [fieldInfo.field]: fieldValue.trim()
+        }
+      };
+      onResolve(resolutionPayload);
+    } catch (e: any) {
+      setError(getErrorMessage(e, "Resolution failed"));
+    }
+  };
+
+  const handleSkip = async () => {
+    try {
+      setError(null);
+      const resolutionPayload = {
+        action: "skip",
+        row_id: payload.row_id
+      };
+      onResolve(resolutionPayload);
+    } catch (e: any) {
+      setError(getErrorMessage(e, "Skip failed"));
+    }
+  };
+
+  return (
+    <div style={{
+      background: "#f8f9fa",
+      borderRadius: 8,
+      padding: 16,
+      marginBottom: 16,
+      border: "1px solid #e9ecef"
+    }}>
+      <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 12, color: "#333" }}>
+        Fix this row:
+      </div>
+      <div style={{ display: "grid", gap: 12, marginBottom: 16 }}>
+        <div>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#495057" }}>
+            {fieldInfo.label}
+          </label>
+          <input
+            type={fieldInfo.type}
+            placeholder={fieldInfo.placeholder}
+            value={fieldValue}
+            onChange={(e) => {
+              setFieldValue(e.target.value);
+              setError(null);
+            }}
+            disabled={busy}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              border: error ? "2px solid #dc3545" : "1px solid #dee2e6",
+              borderRadius: 6,
+              fontFamily: "inherit",
+              fontSize: 14,
+              boxSizing: "border-box",
+              background: error ? "#fff5f5" : "#fff"
+            }}
+          />
+          {error && (
+            <div style={{ color: "#dc3545", fontSize: 12, marginTop: 4 }}>
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Show other fields as read-only for context */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          {primaryRow.data.first_name && fieldInfo.field !== "first_name" && (
+            <div>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#495057" }}>
+                First Name
+              </label>
+              <input
+                type="text"
+                value={primaryRow.data.first_name}
+                disabled
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "1px solid #dee2e6",
+                  borderRadius: 6,
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  boxSizing: "border-box",
+                  background: "#f8f9fa",
+                  color: "#6c757d"
+                }}
+              />
+            </div>
+          )}
+          {primaryRow.data.last_name && fieldInfo.field !== "last_name" && (
+            <div>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#495057" }}>
+                Last Name
+              </label>
+              <input
+                type="text"
+                value={primaryRow.data.last_name}
+                disabled
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "1px solid #dee2e6",
+                  borderRadius: 6,
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  boxSizing: "border-box",
+                  background: "#f8f9fa",
+                  color: "#6c757d"
+                }}
+              />
+            </div>
+          )}
+          {primaryRow.data.company && fieldInfo.field !== "company" && (
+            <div>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#495057" }}>
+                Company
+              </label>
+              <input
+                type="text"
+                value={primaryRow.data.company}
+                disabled
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "1px solid #dee2e6",
+                  borderRadius: 6,
+                  fontFamily: "inherit",
+                  fontSize: 14,
+                  boxSizing: "border-box",
+                  background: "#f8f9fa",
+                  color: "#6c757d"
+                }}
+              />
+            </div>
+          )}
+          {primaryRow.data.email && fieldInfo.field !== "email" && (
+            <div>
+              <label style={{ display: "block", fontSize: 13, fontWeight: 600, marginBottom: 6, color: "#495057" }}>
+                Email
+              </label>
+              <input
+                type="email"
+                value={primaryRow.data.email}
+                disabled
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  border: "1px solid #dee2e6",
+                  borderRadius: 6,
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                  boxSizing: "border-box",
+                  background: "#f8f9fa",
+                  color: "#6c757d"
+                }}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 12 }}>
+        <button
+          onClick={handleSubmit}
+          disabled={busy || !fieldValue.trim()}
+          style={{
+            padding: "10px 20px",
+            background: (busy || !fieldValue.trim()) ? "#ccc" : "#1a1a1a",
+            border: "none",
+            borderRadius: 6,
+            color: "#fff",
+            fontWeight: 600,
+            cursor: (busy || !fieldValue.trim()) ? "not-allowed" : "pointer",
+            fontSize: 14,
+            boxShadow: (busy || !fieldValue.trim()) ? "none" : "0 2px 6px rgba(255, 107, 53, 0.3)"
+          }}
+        >
+          {busy ? "Saving..." : "Resolve"}
+        </button>
+        <button
+          onClick={handleSkip}
+          disabled={busy}
+          style={{
+            padding: "10px 20px",
+            background: busy ? "#ccc" : "#f8f9fa",
+            border: "1px solid #dee2e6",
+            borderRadius: 6,
+            color: "#495057",
+            fontWeight: 600,
+            cursor: busy ? "not-allowed" : "pointer",
+            fontSize: 14
+          }}
+        >
+          {busy ? "Processing..." : "Skip This Row"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 type Upload = {
   id: number;
   status: string;
@@ -67,11 +315,11 @@ export default function UploadDetail({ uploadId, onBack }: { uploadId: number; o
     return () => clearInterval(t);
   }, [uploadId]);
 
-  async function resolve(issueId: number, chosenRowId: number) {
+  async function resolve(issueId: number, payload: any) {
     setBusy(true);
     setErr(null);
     try {
-      await api.resolveIssue(issueId, chosenRowId);
+      await api.resolveIssue(issueId, payload);
       await load();
     } catch (e: any) {
       setErr(getErrorMessage(e, "Resolve failed"));
@@ -296,6 +544,9 @@ export default function UploadDetail({ uploadId, onBack }: { uploadId: number; o
             data: payload.data 
           }];
 
+          // Determine the primary row to edit (first/only row)
+          const primaryRow = candidates[0];
+
           return (
             <div 
               key={issue.id} 
@@ -351,6 +602,17 @@ export default function UploadDetail({ uploadId, onBack }: { uploadId: number; o
                 </span>
               </div>
 
+              {/* For single-row issues (MISSING_*, INVALID_EMAIL_FORMAT), show edit form */}
+              {!isDuplicateIssue && isOpen && (
+                <IssueEditForm 
+                  issue={issue}
+                  primaryRow={primaryRow}
+                  onResolve={(payload) => resolve(issue.id, payload)}
+                  busy={busy}
+                />
+              )}
+
+              {/* For all issues, show table of candidates */}
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "separate", borderSpacing: 0, background: "#fff", borderRadius: 8, overflow: "hidden" }}>
                   <thead>
@@ -376,10 +638,10 @@ export default function UploadDetail({ uploadId, onBack }: { uploadId: number; o
                           }}
                         >
                           <td style={{ padding: "12px" }}>
-                            {issue.status === "OPEN" ? (
+                            {issue.status === "OPEN" && isDuplicateIssue ? (
                               <button 
                                 disabled={busy} 
-                                onClick={() => resolve(issue.id, c.raw_row_id)}
+                                onClick={() => resolve(issue.id, { action: "choose", chosen_row_id: c.raw_row_id })}
                                 style={{
                                   padding: "6px 16px",
                                   background: busy ? "#ccc" : "#1a1a1a",
@@ -394,9 +656,9 @@ export default function UploadDetail({ uploadId, onBack }: { uploadId: number; o
                               >
                                 Choose
                               </button>
-                            ) : (
-                              isChosen && <span style={{ color: "#28a745", fontWeight: 700 }}>✓ Chosen</span>
-                            )}
+                            ) : isChosen ? (
+                              <span style={{ color: "#28a745", fontWeight: 700 }}>✓ Chosen</span>
+                            ) : null}
                           </td>
                           <td style={{ padding: "12px", color: "#495057" }}>{c.row_number}</td>
                           <td style={{ padding: "12px", fontFamily: "monospace", fontSize: 13, color: "#212529" }}>{c.data.email}</td>

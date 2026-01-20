@@ -156,14 +156,14 @@ Optional (for local development without Docker):
 ### Authentication
 Register a new account or login with existing credentials.
 
-![Create Account](public\screnshots\01-register.png)
-![Login](public/screenshots/02-login.png)
+![Create Account](public\screenshots\01-register.png)
+![Login](public\screenshots\02-login.png)
 
 ### Dashboard & Upload
 Upload CSV files and monitor their processing status with real-time statistics.
 
-![Upload Dashboard](public/screenshots/03-dashboard.png)
-![Upload CSV](public/screenshots/04-upload-csv.png)
+![Upload Dashboard](public\screenshots\03-dashboard.png)
+![Upload CSV](public\screenshots\04-upload-csv.png)
 
 ### Issue Resolution Interface
 Fix data quality issues directly in the app. The system detects several types of issues:

@@ -116,7 +116,7 @@ def job_detail(application_id: int, db: Session = Depends(get_db), user: User = 
     
 @app.get("/applications/{application_id}/issues")
 def list_job_issues(application_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    application = db.get(application, application_id)
+    application = db.get(Application, application_id)
     if not application or application.user_id != user.id:
         raise HTTPException(404, "application not found")
 
@@ -146,7 +146,7 @@ def list_job_issues(application_id: int, db: Session = Depends(get_db), user: Us
     
 @app.post("/applications/{application_id}/finalize")
 def finalize_job(application_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    application = db.get(application, application_id)
+    application = db.get(Application, application_id)
     if not application or application.user_id != user.id:
         raise HTTPException(404, "application not found")
 
@@ -213,28 +213,101 @@ def resolve_issue(
     if not issue:
         raise HTTPException(status_code=404, detail="Issue not found")
 
-    application = db.get(application, issue.application_id)
+    application = db.get(Application, issue.application_id)
     if not application or application.user_id != user.id:
         raise HTTPException(status_code=404, detail="Issue not found")
 
     if issue.status == IssueStatus.RESOLVED:
         raise HTTPException(status_code=409, detail="Issue already resolved")
 
-    # validate chosen row belongs to the same application
-    rr = db.get(RawRow, body.chosen_row_id)
-    if not rr or rr.application_id != application.id:
-        raise HTTPException(status_code=400, detail="chosen_row_id does not belong to this application")
+    # Handle different resolution strategies based on issue type and action
+    
+    if body.action == "skip":
+        # User decided to skip/discard this row
+        # Mark the row as invalid so it won't appear in final contacts
+        if body.row_id:
+            row = db.get(RawRow, body.row_id)
+            if row and row.application_id == application.id:
+                row.is_valid = False
+                db.commit()
+        
+        # Record the resolution
+        payload = {"action": "skip", "row_id": body.row_id}
+        existing = db.query(IssueResolution).filter(IssueResolution.issue_id == issue.id).one_or_none()
+        if existing:
+            existing.resolution_json = json.dumps(payload)
+        else:
+            db.add(IssueResolution(issue_id=issue.id, resolution_json=json.dumps(payload)))
+        issue.status = IssueStatus.RESOLVED
+        db.commit()
+        return {"ok": True, "issue_id": issue.id, "status": issue.status}
+    
+    elif body.action == "edit":
+        # User provided corrected data for a row
+        if not body.row_id or not body.updated_data:
+            raise HTTPException(status_code=400, detail="edit action requires row_id and updated_data")
+        
+        row = db.get(RawRow, body.row_id)
+        if not row or row.application_id != application.id:
+            raise HTTPException(status_code=400, detail="row_id does not belong to this application")
+        
+        # Validate and update the row with corrected data
+        # Only allow updating: email, first_name, last_name, company
+        current_data = json.loads(row.data_json)
+        
+        # Update allowed fields
+        if "email" in body.updated_data:
+            current_data["email"] = body.updated_data["email"].strip() if body.updated_data["email"] else None
+        if "first_name" in body.updated_data:
+            current_data["first_name"] = body.updated_data["first_name"].strip() if body.updated_data["first_name"] else None
+        if "last_name" in body.updated_data:
+            current_data["last_name"] = body.updated_data["last_name"].strip() if body.updated_data["last_name"] else None
+        if "company" in body.updated_data:
+            current_data["company"] = body.updated_data["company"].strip() if body.updated_data["company"] else None
+        
+        # Re-validate the email
+        from worker import normalize_email, is_valid_email_format
+        updated_email = current_data.get("email")
+        normalized_email = normalize_email(updated_email) if updated_email else None
+        
+        # Update the row
+        row.data_json = json.dumps(current_data)
+        row.normalized_email = normalized_email if normalized_email and is_valid_email_format(normalized_email) else None
+        row.is_valid = True
+        db.commit()
+        
+        # Record the resolution
+        payload = {"action": "edit", "row_id": body.row_id, "updated_data": body.updated_data}
+        existing = db.query(IssueResolution).filter(IssueResolution.issue_id == issue.id).one_or_none()
+        if existing:
+            existing.resolution_json = json.dumps(payload)
+        else:
+            db.add(IssueResolution(issue_id=issue.id, resolution_json=json.dumps(payload)))
+        issue.status = IssueStatus.RESOLVED
+        db.commit()
+        return {"ok": True, "issue_id": issue.id, "status": issue.status}
+    
+    elif body.action == "choose":
+        # Original logic: user chose one row from duplicates
+        if not body.chosen_row_id:
+            raise HTTPException(status_code=400, detail="choose action requires chosen_row_id")
+        
+        # Validate chosen row belongs to the same application
+        rr = db.get(RawRow, body.chosen_row_id)
+        if not rr or rr.application_id != application.id:
+            raise HTTPException(status_code=400, detail="chosen_row_id does not belong to this application")
 
-    # upsert resolution (issue_id is unique)
-    existing = db.query(IssueResolution).filter(IssueResolution.issue_id == issue.id).one_or_none()
-    payload = {"action": body.action, "chosen_row_id": body.chosen_row_id}
-
-    if existing:
-        existing.resolution_json = json.dumps(payload)
+        # Record the resolution
+        payload = {"action": body.action, "chosen_row_id": body.chosen_row_id}
+        existing = db.query(IssueResolution).filter(IssueResolution.issue_id == issue.id).one_or_none()
+        if existing:
+            existing.resolution_json = json.dumps(payload)
+        else:
+            db.add(IssueResolution(issue_id=issue.id, resolution_json=json.dumps(payload)))
+        issue.status = IssueStatus.RESOLVED
+        db.commit()
+        return {"ok": True, "issue_id": issue.id, "status": issue.status}
+    
     else:
-        db.add(IssueResolution(issue_id=issue.id, resolution_json=json.dumps(payload)))
+        raise HTTPException(status_code=400, detail=f"Unknown action: {body.action}")
 
-    issue.status = IssueStatus.RESOLVED
-    db.commit()
-
-    return {"ok": True, "issue_id": issue.id, "status": issue.status}

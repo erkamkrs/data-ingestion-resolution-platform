@@ -1,0 +1,8 @@
+email,first_name,last_name,company
+,Missing,Email,Acme Corp
+notanemail,Bad,Format,Tech Inc
+user@,Incomplete,Domain,StartUp LLC
+@example.com,Missing,Local,Innovation Labs
+valid@example.com,Valid,User,Good Corp
+user1@test.com; user2@test.com,Multiple,Emails,Bad Corp
+alice@example.com,Alice,Anderson,

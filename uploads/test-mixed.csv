@@ -1,0 +1,10 @@
+email,first_name,last_name,company
+alice@example.com,Alice,Anderson,Acme Corp
+bob@example.com,Bob,Brown,Tech Inc
+,Missing,Email,Corp
+john@example.com,John,Doe,StartUp LLC
+notanemail,Bad,Format,Bad Corp
+john@example.com,John,Doe,Innovation Labs
+jane@example.com,Jane,Smith,
+valid@example.com,Valid,User,Good Corp
+jane@example.com,Jane,Johnson,Different Corp

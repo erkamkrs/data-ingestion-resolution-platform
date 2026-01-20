@@ -63,8 +63,6 @@ coverage/
 htmlcov/
 .pytest_cache/
 
-# Project specific
-uploads/
 
 # Docker volumes (if persisted locally)
 postgres-data/

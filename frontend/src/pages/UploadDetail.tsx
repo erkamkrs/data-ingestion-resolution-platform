@@ -1,23 +1,7 @@
-/**
- * UploadDetail Component
- * 
- * Displays detailed information about a single CSV upload and allows users to resolve data quality issues.
- * 
- * Design decisions:
- * 1. Polling every 3s for status updates (simple, reliable, good enough for MVP)
- *    - Alternative considered: WebSockets (adds complexity, harder to debug)
- * 2. Handling two different issue payload types in one component
- *    - DUPLICATE_EMAIL: has 'candidates' array with multiple rows
- *    - Single-row issues: has single 'data' object with 'reason'
- *    - Could have split into separate components, but this keeps logic centralized
- * 3. Finalize button disabled until all issues resolved
- *    - Prevents incomplete data in final contacts table
- *    - Clear visual feedback (grayed out + tooltip would be better)
- */
-
 import React, { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { getErrorMessage } from "../utils/errorHandler";
+import validateEmail from "../utils/validateEmail";
 
 // Component for editing single-row issues (MISSING_*, INVALID_EMAIL_FORMAT)
 function IssueEditForm({ 
@@ -35,7 +19,6 @@ function IssueEditForm({
   const [error, setError] = useState<string | null>(null);
   const payload: any = issue.payload;
 
-  // Determine which field to edit based on issue type
   const getFieldInfo = () => {
     if (issue.type === "MISSING_EMAIL") {
       return { field: "email", label: "Email Address", placeholder: "john@example.com", type: "email" };
@@ -55,18 +38,16 @@ function IssueEditForm({
   if (!fieldInfo) return null;
 
   const handleSubmit = async () => {
-    if (!fieldValue.trim()) {
+    const value = fieldValue.trim();
+    if (!value) {
       setError("This field cannot be empty");
       return;
     }
 
-    // Validate email format for email fields
-    if ((fieldInfo.field === "email" || fieldInfo.type === "email") && fieldValue.trim()) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(fieldValue.trim())) {
-        setError("Please enter a valid email address (e.g., john@example.com)");
-        return;
-      }
+    // Validate email format for email fields using shared util
+    if ((fieldInfo.field === "email" || fieldInfo.type === "email") && !validateEmail(value)) {
+      setError("Please enter a valid email address (e.g., john@example.com)");
+      return;
     }
 
     try {
@@ -75,7 +56,7 @@ function IssueEditForm({
         action: "edit",
         row_id: payload.row_id,
         updated_data: {
-          [fieldInfo.field]: fieldValue.trim()
+          [fieldInfo.field]: value
         }
       };
       onResolve(resolutionPayload);

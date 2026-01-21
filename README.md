@@ -17,7 +17,7 @@ Rather than blindly accepting or rejecting data, this application implements a h
 - CSV File Upload - Import contact data with email, first name, last name, and company
 - Smart Validation - Automatic validation of email format and data quality
 - Duplicate Detection - Identifies conflicts when the same email has different identity information
-- Issue Resolution - User interface to resolve data conflicts
+- Interactive Issue Resolution - Resolve conflicts via Edit, Choose, or Skip actions
 - Clean Output - Generates deduplicated contact list after review
 - User Authentication - Secure login and registration system
 - Real-time Updates - Monitor processing progress in real-time
@@ -151,6 +151,26 @@ Optional (for local development without Docker):
 
 3. Open http://localhost:5173
 
+## Testing
+
+### Frontend (Vitest)
+Run unit tests for the email validator and UI helpers.
+
+```powershell
+cd frontend
+npm install
+npm run test
+```
+
+### Backend (PyTest)
+Run unit tests for email normalization and validation used by the worker.
+
+```powershell
+cd backend
+pip install -r requirements.txt
+pytest -q
+```
+
 ## Screenshots
 
 ### Authentication
@@ -184,6 +204,31 @@ View all resolved issues with checkmarks confirming resolution:
 ### Final Dashboard
 View all completed uploads with statistics on total rows, valid rows, and resolved issues:
 ![Final Dashboard](public/screenshots/09-final-dashboard.png)
+
+## Testing
+
+### Backend (pytest)
+
+Run unit tests for email normalization/validation and core utilities:
+
+```powershell
+cd backend
+python -m pip install -r requirements.txt ; python -m pytest -q
+```
+
+Common results:
+- Tests cover normalize_email and is_valid_email_format utilities used by worker and resolution API
+
+### Frontend (Vitest)
+
+Run UI/unit tests (includes email format validator):
+
+```powershell
+cd frontend
+npm install ; npm run test
+```
+
+Vitest configuration is in `frontend/vitest.config.ts` and picks up `src/**/*.test.ts(x)` files.
 
 ## API Endpoints
 
@@ -347,3 +392,23 @@ Erkam - January 2026
 ## Support
 
 For questions or issues, please refer to the documentation files listed above or examine the code comments for implementation details.
+
+## Testing
+
+### Frontend (Vitest)
+Run unit tests for the email validator and UI helpers.
+
+```powershell
+cd frontend
+npm install
+npm run test
+```
+
+### Backend (PyTest)
+Run unit tests for email normalization and validation used by the worker.
+
+```powershell
+cd backend
+pip install -r requirements.txt
+pytest -q
+```
